@@ -1,0 +1,89 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > app-release.p12
+            echo "keystore ok: $(stat -c%s app-release.p12) bytes"
+          else
+            echo "::warning::KEYSTORE_B64 secret missing — release will be debug-signed"
+          fi
+
+      - name: Read version
+        id: ver
+        run: |
+          VN=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts | head -1)
+          VC=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts | head -1)
+          echo "name=$VN" >> "$GITHUB_OUTPUT"
+          echo "code=$VC" >> "$GITHUB_OUTPUT"
+          echo "version $VN ($VC)"
+
+      - name: Unit tests (patch graph)
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Build release APK
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Collect APKs
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk "out/TouchDesigner-${{ steps.ver.outputs.name }}-release.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "out/TouchDesigner-${{ steps.ver.outputs.name }}-debug.apk"
+          ls -la out/
+
+      - name: Upload test reports on failure
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
+
+      - name: Upload debug artifact
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: td-apk-${{ steps.ver.outputs.name }}
+          path: out/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.ver.outputs.name }}"
+          NOTES="TouchDesigner for Android $(date -u +%Y-%m-%d) · build ${{ steps.ver.outputs.code }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "out/TouchDesigner-${{ steps.ver.outputs.name }}-release.apk" --clobber
+          else
+            gh release create "$TAG" "out/TouchDesigner-${{ steps.ver.outputs.name }}-release.apk" -t "TouchDesigner Android $TAG" -n "$NOTES"
+          fi
+          gh release view "$TAG" --json url,assets -q '.url + " → " + ([.assets[].name] | join(", "))'
