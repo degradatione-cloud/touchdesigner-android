@@ -193,19 +193,11 @@ fun TdApp(engine: GlEngine, patch: Patch) {
                     }
                 }
             }
-            AnimatedVisibility(
+            ToastPill(
                 visible = toast != null,
-                enter = fadeIn(tween(160)),
-                exit = fadeOut(tween(140)),
+                text = toast.orEmpty(),
                 modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
-            ) {
-                Text(
-                    toast.orEmpty(),
-                    color = Td.text, fontSize = 10.sp,
-                    modifier = Modifier.background(Td.panel.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                )
-            }
+            )
         }
 
         // ── панель графа ──────────────────────────────────────────────────
@@ -504,6 +496,22 @@ fun ParamSlider(label: String, value: Float, min: Float, max: Float, onChange: (
             colors = SliderDefaults.colors(
                 thumbColor = Td.text, activeTrackColor = Td.top, inactiveTrackColor = Td.border,
             ),
+        )
+    }
+}
+@Composable
+fun ToastPill(visible: Boolean, text: String, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(160)),
+        exit = fadeOut(tween(140)),
+        modifier = modifier,
+    ) {
+        Text(
+            text,
+            color = Td.text, fontSize = 10.sp,
+            modifier = Modifier.background(Td.panel.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
         )
     }
 }
